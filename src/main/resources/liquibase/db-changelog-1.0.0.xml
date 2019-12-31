@@ -5,15 +5,37 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                       http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd">
 
-    <changeSet id="create-playlist-alias" author="IliaNemankov" runOnChange="true">
+    <changeSet id="create-game-table" author="IliaNemankov" runOnChange="true">
         <createTable tableName="game">
-            <column autoIncrement="true" name="id" type="BIGINT">
+            <column name="id" type="BIGINT">
                 <constraints primaryKey="true" nullable="false"/>
             </column>
             <column name="name" type="VARCHAR(255)">
                 <constraints nullable="false"/>
             </column>
         </createTable>
+    </changeSet>
+
+    <changeSet id="create-item_search_cycle-table" author="IliaNemankov" runOnChange="true">
+        <createTable tableName="item_search_cycle">
+            <column name="game_id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="next_page" type="INT" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="search_finished" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints  nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="item_search_cycle"
+                baseColumnNames="game_id"
+                constraintName="fk_item_search_cycle_game"
+                referencedTableName="game"
+                referencedColumnNames="id"
+        />
     </changeSet>
 
 </databaseChangeLog>
