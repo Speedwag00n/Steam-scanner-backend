@@ -16,6 +16,7 @@
         </createTable>
     </changeSet>
 
+
     <changeSet id="create-item_search_cycle-table" author="IliaNemankov" runOnChange="true">
         <createTable tableName="item_search_cycle">
             <column name="game_id" type="BIGINT">
@@ -25,7 +26,7 @@
                 <constraints nullable="false"/>
             </column>
             <column name="search_finished" type="BOOLEAN" defaultValueBoolean="false">
-                <constraints  nullable="false"/>
+                <constraints nullable="false"/>
             </column>
         </createTable>
 
@@ -33,6 +34,34 @@
                 baseTableName="item_search_cycle"
                 baseColumnNames="game_id"
                 constraintName="fk_item_search_cycle_game"
+                referencedTableName="game"
+                referencedColumnNames="id"
+        />
+    </changeSet>
+
+
+    <changeSet id="create-item-table" author="IliaNemankov" runOnChange="true">
+        <createTable tableName="item">
+            <column name="item_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="game_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="item_name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addPrimaryKey
+                tableName="item"
+                columnNames="item_id, game_id"
+        />
+
+        <addForeignKeyConstraint
+                baseTableName="item"
+                baseColumnNames="game_id"
+                constraintName="fk_item_game"
                 referencedTableName="game"
                 referencedColumnNames="id"
         />

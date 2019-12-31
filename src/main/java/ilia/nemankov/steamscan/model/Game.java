@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import javax.persistence.*;
+import java.util.List;
 
 @Entity
 @Getter
@@ -15,7 +16,10 @@ public class Game {
 
     private String name;
 
-    @OneToOne(mappedBy="game", cascade = CascadeType.ALL)
+    @OneToOne(mappedBy="game")
     private ItemSearchCycle itemSearchCycle;
+
+    @OneToMany(mappedBy = "game", fetch = FetchType.LAZY)
+    private List<Item> items;
 
 }

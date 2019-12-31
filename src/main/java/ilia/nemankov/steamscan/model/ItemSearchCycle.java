@@ -3,10 +3,7 @@ package ilia.nemankov.steamscan.model;
 import lombok.Getter;
 import lombok.Setter;
 
-import javax.persistence.Entity;
-import javax.persistence.Id;
-import javax.persistence.OneToOne;
-import javax.persistence.PrimaryKeyJoinColumn;
+import javax.persistence.*;
 
 @Entity
 @Getter
@@ -16,7 +13,7 @@ public class ItemSearchCycle {
     @Id
     private long gameId;
 
-    @OneToOne
+    @OneToOne(cascade = CascadeType.ALL)
     @PrimaryKeyJoinColumn(name="game_id", referencedColumnName="id")
     private Game game;
 
