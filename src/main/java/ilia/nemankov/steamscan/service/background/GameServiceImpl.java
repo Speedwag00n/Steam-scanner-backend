@@ -15,7 +15,6 @@ import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 
 @Service
@@ -46,11 +45,7 @@ public class GameServiceImpl implements GameService {
             try {
                 Document document = Jsoup.connect(marketplaceUrl).get();
                 Elements elements = document.body().getElementsByClass("game_button");
-
-                Iterator<Element> iterator = elements.iterator();
-                while (iterator.hasNext()) {
-                    Element element = iterator.next();
-
+                for (Element element : elements) {
                     Game entity = new Game();
 
                     String gameName = element.child(0).child(0).child(0).attr("alt"); //a:class=game_button -> span:class=game_button_contents -> span:class=game_button_game_icon -> img

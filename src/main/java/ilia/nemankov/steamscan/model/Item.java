@@ -13,16 +13,14 @@ public class Item implements Serializable {
 
     private static final long serialVersionUID = -7316446521334299209L;
 
-    @Id
-    private long itemId;
+    @EmbeddedId
+    private ItemId id;
 
-    @Id
-    private long gameId;
+    @MapsId("gameId")
+    @ManyToOne(cascade = CascadeType.ALL)
+    @JoinColumn(name="game_id", referencedColumnName="id")
+    private Game game;
 
     private String itemName;
-
-    @ManyToOne(optional = false, cascade = CascadeType.ALL)
-    @JoinColumn(name = "id")
-    private Game game;
 
 }

@@ -22,7 +22,7 @@
             <column name="game_id" type="BIGINT">
                 <constraints primaryKey="true" nullable="false"/>
             </column>
-            <column name="next_page" type="INT" defaultValueNumeric="1">
+            <column name="next_item" type="INT" defaultValueNumeric="0">
                 <constraints nullable="false"/>
             </column>
             <column name="search_finished" type="BOOLEAN" defaultValueBoolean="false">

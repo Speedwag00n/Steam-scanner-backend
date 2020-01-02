@@ -3,9 +3,7 @@ package ilia.nemankov.steamscan.util;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 @Component
 @Slf4j
@@ -30,6 +28,11 @@ public class UrlUtil {
         } catch (IndexOutOfBoundsException e) {
             return Collections.emptyMap();
         }
+    }
+
+    public List<String> getUrlNodes(String url) {
+        List<String> nodes = Arrays.asList(url.split("/"));
+        return nodes.subList(1, nodes.size());
     }
 
 }
