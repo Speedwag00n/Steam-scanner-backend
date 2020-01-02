@@ -55,6 +55,7 @@ public class GameServiceImpl implements GameService {
                     entity.setId(id);
                     entity.setName(gameName);
                     gameRepository.save(entity);
+                    games.add(entity);
                 }
             } catch (IOException e) {
                 log.error("Could not open connection for URL \"{}\"", marketplaceUrl, e);
