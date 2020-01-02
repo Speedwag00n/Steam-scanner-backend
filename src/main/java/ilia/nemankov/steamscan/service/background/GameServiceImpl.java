@@ -21,7 +21,7 @@ import java.util.List;
 @Slf4j
 public class GameServiceImpl implements GameService {
 
-    private static final String marketplaceUrl = "https://steamcommunity.com/market/";
+    private static final String MARKETPLACE_URL = "https://steamcommunity.com/market/";
 
     private List<Game> games;
 
@@ -43,7 +43,7 @@ public class GameServiceImpl implements GameService {
             log.debug("Started games search");
             games = new ArrayList<>();
             try {
-                Document document = Jsoup.connect(marketplaceUrl).get();
+                Document document = Jsoup.connect(MARKETPLACE_URL).get();
                 Elements elements = document.body().getElementsByClass("game_button");
                 for (Element element : elements) {
                     Game entity = new Game();
@@ -58,7 +58,7 @@ public class GameServiceImpl implements GameService {
                     games.add(entity);
                 }
             } catch (IOException e) {
-                log.error("Could not open connection for URL \"{}\"", marketplaceUrl, e);
+                log.error("Could not open connection for URL \"{}\"", MARKETPLACE_URL, e);
             } catch (NumberFormatException e) {
                 log.error("Appid isn't integer", e);
             }

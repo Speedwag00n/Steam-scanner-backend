@@ -7,19 +7,22 @@ import org.springframework.context.annotation.PropertySource;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 @Configuration
-@PropertySource("classpath:analytics.properties")
-public class AnalyticsConfiguration {
+@PropertySource("classpath:item_stats.properties")
+public class ItemStatsConfiguration {
 
     @Value("${core.pool.size}")
-    private String corePoolSize;
+    private int corePoolSize;
     @Value("${max.pool.size}")
-    private String maxPoolSize;
+    private int maxPoolSize;
+    @Value("${queue.capacity}")
+    private int queueCapacity;
 
-    @Bean(name = "analyticsThreadPool")
+    @Bean(name = "itemStatsExecutor")
     public ThreadPoolTaskExecutor getTaskExecutor() {
         ThreadPoolTaskExecutor threadPool = new ThreadPoolTaskExecutor();
-        threadPool.setCorePoolSize(Integer.parseInt(corePoolSize));
-        threadPool.setMaxPoolSize(Integer.parseInt(maxPoolSize));
+        threadPool.setCorePoolSize(corePoolSize);
+        threadPool.setMaxPoolSize(maxPoolSize);
+        threadPool.setQueueCapacity(queueCapacity);
         threadPool.setWaitForTasksToCompleteOnShutdown(true);
         return threadPool;
     }

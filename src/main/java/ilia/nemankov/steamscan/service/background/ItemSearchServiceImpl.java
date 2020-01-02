@@ -1,14 +1,11 @@
 package ilia.nemankov.steamscan.service.background;
 
-import ilia.nemankov.steamscan.model.Game;
-import ilia.nemankov.steamscan.model.Item;
-import ilia.nemankov.steamscan.model.ItemId;
-import ilia.nemankov.steamscan.model.ItemSearchCycle;
+import ilia.nemankov.steamscan.model.*;
 import ilia.nemankov.steamscan.repository.ItemRepository;
 import ilia.nemankov.steamscan.repository.ItemSearchCycleRepository;
+import ilia.nemankov.steamscan.repository.ItemStatsRepository;
 import ilia.nemankov.steamscan.util.UrlUtil;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
@@ -33,23 +30,25 @@ import java.util.Optional;
 @Slf4j
 public class ItemSearchServiceImpl implements ItemSearchService {
 
-    private static final int itemsCount = 20;
+    private static final int ITEMS_COUNT = 20;
 
     private GameService gameService;
     private ItemSearchCycleRepository cycleRepository;
     private UrlUtil urlUtil;
     private ItemRepository itemRepository;
+    private ItemStatsRepository itemStatsRepository;
 
     private List<Game> games;
     private Iterator<Game> iterator;
     private Game currentGame;
 
     @Autowired
-    public ItemSearchServiceImpl(GameService gameService, ItemSearchCycleRepository cycleRepository, UrlUtil urlUtil, ItemRepository itemRepository) {
+    public ItemSearchServiceImpl(GameService gameService, ItemSearchCycleRepository cycleRepository, UrlUtil urlUtil, ItemRepository itemRepository, ItemStatsRepository itemStatsRepository) {
         this.gameService = gameService;
         this.cycleRepository = cycleRepository;
         this.urlUtil = urlUtil;
         this.itemRepository = itemRepository;
+        this.itemStatsRepository = itemStatsRepository;
 
         this.games = gameService.getGames();
         this.iterator = games.iterator();
@@ -92,7 +91,7 @@ public class ItemSearchServiceImpl implements ItemSearchService {
         } catch (IOException e) {
             log.warn("Items search failed", e);
         }
-        analysedGame.setNextItem(analysedGame.getNextItem() + itemsCount);
+        analysedGame.setNextItem(analysedGame.getNextItem() + ITEMS_COUNT);
         cycleRepository.save(analysedGame);
     }
 
@@ -131,6 +130,10 @@ public class ItemSearchServiceImpl implements ItemSearchService {
                         item.setGame(game);
                         item.setItemName(itemName);
                         itemRepository.save(item);
+
+                        ItemStats stats = new ItemStats();
+                        stats.setId(item.getId());
+                        itemStatsRepository.save(stats);
                         break;
                     } catch (IndexOutOfBoundsException e) {
                         log.error("Script contains unexpected code: {}", line, e);
@@ -143,7 +146,7 @@ public class ItemSearchServiceImpl implements ItemSearchService {
                 log.error("Item id not found. Script: {}", script);
             }
         }
-        return totalItemsCount > firstItem + itemsCount;
+        return totalItemsCount > firstItem + ITEMS_COUNT;
     }
 
     private String buildPageUrl(long gameId, long firstItem, long itemsCount) {
@@ -164,7 +167,7 @@ public class ItemSearchServiceImpl implements ItemSearchService {
     }
 
     private ParsedPageInfo getPageInfo(long gameId, long firstItem) throws IOException {
-        String url = buildPageUrl(gameId, firstItem, itemsCount);
+        String url = buildPageUrl(gameId, firstItem, ITEMS_COUNT);
         String data = Jsoup.connect(url).ignoreContentType(true).execute().body();
 
         JSONObject jsonObject = new JSONObject(data);
@@ -183,7 +186,7 @@ public class ItemSearchServiceImpl implements ItemSearchService {
 
     @Getter
     @Setter
-    static class ParsedPageInfo {
+    private static class ParsedPageInfo {
 
         private int totalItemsCount;
         private Elements elements;

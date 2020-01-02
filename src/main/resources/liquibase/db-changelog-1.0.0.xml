@@ -85,6 +85,9 @@
             <column name="currency" type="INT">
                 <constraints nullable="true"/>
             </column>
+            <column name="last_update" type="DATETIME">
+                <constraints nullable="true"/>
+            </column>
         </createTable>
 
         <addPrimaryKey
