@@ -67,4 +67,38 @@
         />
     </changeSet>
 
+
+    <changeSet id="create-item_stats-table" author="IliaNemankov" runOnChange="true">
+        <createTable tableName="item_stats">
+            <column name="item_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="game_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="highest_buy_order" type="DOUBLE">
+                <constraints nullable="true"/>
+            </column>
+            <column name="lowest_sell_order" type="DOUBLE">
+                <constraints nullable="true"/>
+            </column>
+            <column name="currency" type="INT">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+
+        <addPrimaryKey
+                tableName="item_stats"
+                columnNames="item_id, game_id"
+        />
+
+        <addForeignKeyConstraint
+                baseTableName="item_stats"
+                baseColumnNames="item_id, game_id"
+                constraintName="fk_item_stats_item"
+                referencedTableName="item"
+                referencedColumnNames="item_id, game_id"
+        />
+    </changeSet>
+
 </databaseChangeLog>

@@ -23,4 +23,7 @@ public class Item implements Serializable {
 
     private String itemName;
 
+    @OneToOne(mappedBy="item")
+    private ItemStats itemStats;
+
 }
