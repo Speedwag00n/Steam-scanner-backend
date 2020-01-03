@@ -30,4 +30,8 @@ public class ItemStats {
     @Temporal(TemporalType.TIMESTAMP)
     private Date lastUpdate;
 
+    private Double profitAbsolute;
+
+    private Double profitRelative;
+
 }

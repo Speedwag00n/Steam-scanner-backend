@@ -26,6 +26,7 @@ import java.util.List;
 public class ItemStatsServiceImpl implements ItemStatsService {
 
     private static final int PAGE_SIZE = 100;
+    private static final double COMMISSION =  0.13D;
 
     private ItemRepository itemRepository;
     private ThreadPoolTaskExecutor itemStatsExecutor;
@@ -88,9 +89,11 @@ public class ItemStatsServiceImpl implements ItemStatsService {
             }
 
             try {
-                updateHighestBuyOrder(jsonObject, stats);
-                updateLowestSellOrder(jsonObject, stats);
-                stats.setLastUpdate(new Date());
+                updateHighestBuyOrder(jsonObject);
+                updateLowestSellOrder(jsonObject);
+                updateProfit();
+
+                updateLastUpdate();
             } catch (Exception e) {
                 log.warn("Unexpected error during stats updating happened", e);
                 return;
@@ -110,7 +113,7 @@ public class ItemStatsServiceImpl implements ItemStatsService {
             return "https://steamcommunity.com/market/itemordershistogram?language=english&currency=1&item_nameid=" + stats.getId().getItemId();
         }
 
-        private ItemStats updateHighestBuyOrder(JSONObject jsonObject, ItemStats itemStats) {
+        private void updateHighestBuyOrder(JSONObject jsonObject) {
             Object data = null;
             double highestBuyOrder;
             try {
@@ -122,11 +125,10 @@ public class ItemStatsServiceImpl implements ItemStatsService {
                 highestBuyOrder = 0;
             }
 
-            itemStats.setHighestBuyOrder(highestBuyOrder);
-            return itemStats;
+            stats.setHighestBuyOrder(highestBuyOrder);
         }
 
-        private ItemStats updateLowestSellOrder(JSONObject jsonObject, ItemStats itemStats) {
+        private void updateLowestSellOrder(JSONObject jsonObject) {
             Object data = null;
             double lowestSellOrder;
             try {
@@ -138,8 +140,23 @@ public class ItemStatsServiceImpl implements ItemStatsService {
                 lowestSellOrder = 0;
             }
 
-            itemStats.setLowestSellOrder(lowestSellOrder);
-            return itemStats;
+            stats.setLowestSellOrder(lowestSellOrder);
+        }
+
+        private void updateProfit() {
+            double highestBuyOrder = stats.getHighestBuyOrder();
+            double lowestSellOrder = stats.getLowestSellOrder();
+            if (highestBuyOrder != 0 && lowestSellOrder != 0) {
+                double profitAbsolute = lowestSellOrder * (1 - COMMISSION) - highestBuyOrder;
+                double profitRelative = profitAbsolute / highestBuyOrder;
+
+                stats.setProfitAbsolute(profitAbsolute);
+                stats.setProfitRelative(profitRelative);
+            }
+        }
+
+        private void updateLastUpdate() {
+            stats.setLastUpdate(new Date());
         }
 
     }

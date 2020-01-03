@@ -104,4 +104,16 @@
         />
     </changeSet>
 
+
+    <changeSet id="add_column-profit-item_stats-table" author="IliaNemankov" runOnChange="true">
+        <addColumn tableName="item_stats">
+            <column name="profit_absolute" type="DOUBLE">
+                <constraints nullable="true"/>
+            </column>
+            <column name="profit_relative" type="DOUBLE">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
 </databaseChangeLog>
