@@ -30,4 +30,6 @@ public class ItemStats {
     @Temporal(TemporalType.TIMESTAMP)
     private Date lastUpdate;
 
+    private Integer soldYesterday;
+
 }

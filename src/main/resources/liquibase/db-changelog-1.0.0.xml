@@ -104,4 +104,13 @@
         />
     </changeSet>
 
+
+    <changeSet id="add_column_1-item_stats-table" author="IliaNemankov" runOnChange="true">
+        <addColumn tableName="item_stats">
+            <column name="sold_yesterday" type="INT">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
 </databaseChangeLog>

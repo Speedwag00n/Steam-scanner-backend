@@ -17,6 +17,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
@@ -26,6 +29,7 @@ import java.util.List;
 public class ItemStatsServiceImpl implements ItemStatsService {
 
     private static final int PAGE_SIZE = 100;
+    private static final ZoneId ZONE_ID = ZoneId.of("UTC");
 
     private ItemRepository itemRepository;
     private ThreadPoolTaskExecutor itemStatsExecutor;
@@ -36,6 +40,8 @@ public class ItemStatsServiceImpl implements ItemStatsService {
     private List<ItemStats> itemStats;
     private Iterator<ItemStats> iterator;
 
+    Date startOfToday;
+
     @Autowired
     public ItemStatsServiceImpl(ItemRepository itemRepository, ThreadPoolTaskExecutor itemStatsExecutor, ItemStatsRepository itemStatsRepository) {
         this.itemRepository = itemRepository;
@@ -43,6 +49,7 @@ public class ItemStatsServiceImpl implements ItemStatsService {
         this.itemStatsRepository = itemStatsRepository;
 
         this.requestsCount = itemStatsExecutor.getMaxPoolSize();
+        setStartOfDay();
         updateCachedStats();
     }
 
@@ -64,6 +71,11 @@ public class ItemStatsServiceImpl implements ItemStatsService {
                 }
             }
         }
+    }
+
+    @Scheduled(cron = "0 0 0 * * *", zone = "UTC")
+    private void setStartOfDay() {
+        startOfToday = Date.from(ZonedDateTime.ofInstant(Instant.now(), ZONE_ID).toLocalDate().atStartOfDay(ZONE_ID).toInstant());
     }
 
     private void updateCachedStats() {
@@ -88,9 +100,11 @@ public class ItemStatsServiceImpl implements ItemStatsService {
             }
 
             try {
-                updateHighestBuyOrder(jsonObject, stats);
-                updateLowestSellOrder(jsonObject, stats);
-                stats.setLastUpdate(new Date());
+                updateHighestBuyOrder(jsonObject);
+                updateLowestSellOrder(jsonObject);
+                updateSoldYesterday();
+
+                updateLastUpdate();
             } catch (Exception e) {
                 log.warn("Unexpected error during stats updating happened", e);
                 return;
@@ -110,7 +124,7 @@ public class ItemStatsServiceImpl implements ItemStatsService {
             return "https://steamcommunity.com/market/itemordershistogram?language=english&currency=1&item_nameid=" + stats.getId().getItemId();
         }
 
-        private ItemStats updateHighestBuyOrder(JSONObject jsonObject, ItemStats itemStats) {
+        private void updateHighestBuyOrder(JSONObject jsonObject) {
             Object data = null;
             double highestBuyOrder;
             try {
@@ -122,11 +136,10 @@ public class ItemStatsServiceImpl implements ItemStatsService {
                 highestBuyOrder = 0;
             }
 
-            itemStats.setHighestBuyOrder(highestBuyOrder);
-            return itemStats;
+            stats.setHighestBuyOrder(highestBuyOrder);
         }
 
-        private ItemStats updateLowestSellOrder(JSONObject jsonObject, ItemStats itemStats) {
+        private void updateLowestSellOrder(JSONObject jsonObject) {
             Object data = null;
             double lowestSellOrder;
             try {
@@ -138,8 +151,37 @@ public class ItemStatsServiceImpl implements ItemStatsService {
                 lowestSellOrder = 0;
             }
 
-            itemStats.setLowestSellOrder(lowestSellOrder);
-            return itemStats;
+            stats.setLowestSellOrder(lowestSellOrder);
+        }
+
+        private void updateLastUpdate() {
+            stats.setLastUpdate(Date.from(ZonedDateTime.now(ZONE_ID).toInstant()));
+        }
+
+        private void updateSoldYesterday() {
+            if (stats.getLastUpdate() == null || stats.getLastUpdate().before(startOfToday)) {
+                String url = buildPriceOverviewUrl();
+                try {
+                    String data = Jsoup.connect(url).ignoreContentType(true).execute().body();
+
+                    JSONObject json = new JSONObject(data);
+                    stats.setSoldYesterday(Integer.parseInt(((String) json.get("volume")).replaceAll(",", "")));
+                } catch (IOException e) {
+                    log.error("Could not update sold items count yesterday", e);
+                } catch (NumberFormatException e) {
+                    log.error("Volume isn't integer", e);
+                }
+            }
+        }
+
+        private String buildPriceOverviewUrl() {
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append("https://steamcommunity.com/market/priceoverview/?currency=1&appid=");
+            stringBuilder.append(stats.getId().getGameId());
+            stringBuilder.append("&market_hash_name=");
+            stringBuilder.append(stats.getItem().getItemName());
+
+            return stringBuilder.toString();
         }
 
     }
