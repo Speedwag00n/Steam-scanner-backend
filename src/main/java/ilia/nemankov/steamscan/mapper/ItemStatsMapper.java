@@ -6,6 +6,9 @@ import ilia.nemankov.steamscan.model.ItemStats;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Component
 public class ItemStatsMapper {
 
@@ -30,6 +33,14 @@ public class ItemStatsMapper {
         dto.setItemUrl("https://steamcommunity.com/market/listings/" + entity.getGame().getId() + "/" + entity.getItem().getItemName());
 
         return dto;
+    }
+
+    public List<ItemStatsDTO> entitiesToDtos(List<ItemStats> entities) {
+        List<ItemStatsDTO> result = new ArrayList<>();
+        for (ItemStats entity : entities) {
+            result.add(entityToDto(entity));
+        }
+        return result;
     }
 
 }

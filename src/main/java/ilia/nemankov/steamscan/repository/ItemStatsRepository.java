@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ItemStatsRepository extends JpaRepository<ItemStats, ItemId> {
 
+    Page<ItemStats> findAllByGameId(long gameId, Pageable pageable);
+
     Page<ItemStats> findAllByGameIdIn(Iterable<Long> gameIds, Pageable pageable);
 
 }
