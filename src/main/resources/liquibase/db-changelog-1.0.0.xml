@@ -116,4 +116,15 @@
         </addColumn>
     </changeSet>
 
+
+    <changeSet id="add_fk-item_stats-game" author="IliaNemankov" runOnChange="true">
+        <addForeignKeyConstraint
+                baseTableName="item_stats"
+                baseColumnNames="game_id"
+                constraintName="fk_item_stats_game"
+                referencedTableName="game"
+                referencedColumnNames="id"
+        />
+    </changeSet>
+
 </databaseChangeLog>

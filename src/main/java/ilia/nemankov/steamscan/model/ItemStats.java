@@ -21,6 +21,11 @@ public class ItemStats {
     })
     private Item item;
 
+    @MapsId("gameId")
+    @ManyToOne(cascade = CascadeType.ALL)
+    @JoinColumn(name="game_id", referencedColumnName="id")
+    private Game game;
+
     private Double highestBuyOrder;
 
     private Double lowestSellOrder;

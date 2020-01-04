@@ -6,6 +6,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
+import java.util.Arrays;
+import java.util.List;
+
 @Configuration
 @PropertySource("classpath:item_stats.properties")
 public class ItemStatsConfiguration {
@@ -17,6 +20,9 @@ public class ItemStatsConfiguration {
     @Value("${queue.capacity}")
     private int queueCapacity;
 
+    @Value("${scanned.games.ids}")
+    private Long[] scannedGamesIds;
+
     @Bean(name = "itemStatsExecutor")
     public ThreadPoolTaskExecutor getTaskExecutor() {
         ThreadPoolTaskExecutor threadPool = new ThreadPoolTaskExecutor();
@@ -25,6 +31,11 @@ public class ItemStatsConfiguration {
         threadPool.setQueueCapacity(queueCapacity);
         threadPool.setWaitForTasksToCompleteOnShutdown(true);
         return threadPool;
+    }
+
+    @Bean(name = "scannedGames")
+    public List<Long> scannedGames() {
+        return Arrays.asList(scannedGamesIds);
     }
 
 }

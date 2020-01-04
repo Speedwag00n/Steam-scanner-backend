@@ -31,6 +31,7 @@ public class ItemStatsServiceImpl implements ItemStatsService {
     private ItemRepository itemRepository;
     private ThreadPoolTaskExecutor itemStatsExecutor;
     private ItemStatsRepository itemStatsRepository;
+    private List<Long> scannedGames;
 
     private int requestsCount;
     private int pageNumber;
@@ -38,10 +39,11 @@ public class ItemStatsServiceImpl implements ItemStatsService {
     private Iterator<ItemStats> iterator;
 
     @Autowired
-    public ItemStatsServiceImpl(ItemRepository itemRepository, ThreadPoolTaskExecutor itemStatsExecutor, ItemStatsRepository itemStatsRepository) {
+    public ItemStatsServiceImpl(ItemRepository itemRepository, ThreadPoolTaskExecutor itemStatsExecutor, ItemStatsRepository itemStatsRepository, List<Long> scannedGames) {
         this.itemRepository = itemRepository;
         this.itemStatsExecutor = itemStatsExecutor;
         this.itemStatsRepository = itemStatsRepository;
+        this.scannedGames = scannedGames;
 
         this.requestsCount = itemStatsExecutor.getMaxPoolSize();
         updateCachedStats();
@@ -68,7 +70,11 @@ public class ItemStatsServiceImpl implements ItemStatsService {
     }
 
     private void updateCachedStats() {
-        itemStats = itemStatsRepository.findAll(PageRequest.of(pageNumber, PAGE_SIZE, Sort.by("itemId"))).getContent();
+        if (scannedGames == null || scannedGames.size() == 0) {
+            itemStats = itemStatsRepository.findAll(PageRequest.of(pageNumber, PAGE_SIZE, Sort.by("itemId"))).getContent();
+        } else {
+            itemStats = itemStatsRepository.findAllByGameIdIn(scannedGames, PageRequest.of(pageNumber, PAGE_SIZE, Sort.by("itemId"))).getContent();
+        }
         iterator = itemStats.iterator();
         pageNumber++;
     }

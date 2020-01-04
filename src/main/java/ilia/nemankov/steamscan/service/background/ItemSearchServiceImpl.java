@@ -133,6 +133,7 @@ public class ItemSearchServiceImpl implements ItemSearchService {
 
                         ItemStats stats = new ItemStats();
                         stats.setId(item.getId());
+                        stats.setGame(game);
                         itemStatsRepository.save(stats);
                         break;
                     } catch (IndexOutOfBoundsException e) {

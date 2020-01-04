@@ -22,4 +22,7 @@ public class Game {
     @OneToMany(mappedBy = "game", fetch = FetchType.LAZY)
     private List<Item> items;
 
+    @OneToMany(mappedBy = "game", fetch = FetchType.LAZY)
+    private List<ItemStats> itemStats;
+
 }
