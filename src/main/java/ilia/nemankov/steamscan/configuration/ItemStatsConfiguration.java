@@ -20,9 +20,6 @@ public class ItemStatsConfiguration {
     @Value("${queue.capacity}")
     private int queueCapacity;
 
-    @Value("${scanned.games.ids}")
-    private Long[] scannedGamesIds;
-
     @Bean(name = "itemStatsExecutor")
     public ThreadPoolTaskExecutor getTaskExecutor() {
         ThreadPoolTaskExecutor threadPool = new ThreadPoolTaskExecutor();
@@ -31,11 +28,6 @@ public class ItemStatsConfiguration {
         threadPool.setQueueCapacity(queueCapacity);
         threadPool.setWaitForTasksToCompleteOnShutdown(true);
         return threadPool;
-    }
-
-    @Bean(name = "scannedGames")
-    public List<Long> scannedGames() {
-        return Arrays.asList(scannedGamesIds);
     }
 
 }

@@ -27,17 +27,24 @@ public class GameServiceImpl implements GameService {
 
     private GameRepository gameRepository;
     private UrlUtil urlUtil;
+    private List<Long> scannedGames;
 
     @Autowired
-    public GameServiceImpl(GameRepository gameRepository, UrlUtil urlUtil) {
+    public GameServiceImpl(GameRepository gameRepository, UrlUtil urlUtil, List<Long> scannedGames) {
         this.gameRepository = gameRepository;
         this.urlUtil = urlUtil;
+        this.scannedGames = scannedGames;
     }
 
     @PostConstruct
     public void init() {
-        List<Game> savedGames = gameRepository.findAll();
-        if (!savedGames.isEmpty()) {
+        List<Game> savedGames;
+        if (scannedGames.isEmpty()) {
+            savedGames = gameRepository.findAll();
+        } else {
+            savedGames = gameRepository.findAllByIdIn(scannedGames);
+        }
+        if (scannedGames.isEmpty() || savedGames.size() == scannedGames.size()) {
             games = savedGames;
         } else {
             log.debug("Started games search");
@@ -55,7 +62,9 @@ public class GameServiceImpl implements GameService {
                     entity.setId(id);
                     entity.setName(gameName);
                     gameRepository.save(entity);
-                    games.add(entity);
+                    if (scannedGames.contains(id) || scannedGames.isEmpty()) {
+                        games.add(entity);
+                    }
                 }
             } catch (IOException e) {
                 log.error("Could not open connection for URL \"{}\"", MARKETPLACE_URL, e);
@@ -63,6 +72,11 @@ public class GameServiceImpl implements GameService {
                 log.error("Appid isn't integer", e);
             }
             log.debug("Finished games search");
+        }
+        if (scannedGames.isEmpty()) {
+            log.debug("Search all games. Found {} games", games.size());
+        } else {
+            log.debug("Search {} games. Found {} games", scannedGames.size(), games.size());
         }
     }
 
