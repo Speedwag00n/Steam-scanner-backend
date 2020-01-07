@@ -16,9 +16,6 @@ public class Game {
 
     private String name;
 
-    @OneToOne(mappedBy="game")
-    private ItemSearchCycle itemSearchCycle;
-
     @OneToMany(mappedBy = "game", fetch = FetchType.LAZY)
     private List<Item> items;
 

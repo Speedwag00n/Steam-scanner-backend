@@ -127,4 +127,9 @@
         />
     </changeSet>
 
+
+    <changeSet id="drop-item_search_cycle-table" author="IliaNemankov" runOnChange="true">
+        <dropTable tableName="item_search_cycle"/>
+    </changeSet>
+
 </databaseChangeLog>

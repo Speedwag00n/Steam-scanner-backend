@@ -15,9 +15,17 @@ public class ScanConfiguration {
     @Value("${scanned.games.ids}")
     private Long[] scannedGamesIds;
 
-    @Bean(name = "scannedGames")
+    @Value("${scanned.items.count}")
+    private Integer scannedItemsCount;
+
+    @Bean
     public List<Long> scannedGames() {
         return Arrays.asList(scannedGamesIds);
+    }
+
+    @Bean
+    public Integer scannedItemsCount() {
+        return scannedItemsCount;
     }
 
 }

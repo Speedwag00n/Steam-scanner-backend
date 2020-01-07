@@ -2,13 +2,13 @@ package ilia.nemankov.steamscan.service.background;
 
 import ilia.nemankov.steamscan.model.*;
 import ilia.nemankov.steamscan.repository.ItemRepository;
-import ilia.nemankov.steamscan.repository.ItemSearchCycleRepository;
 import ilia.nemankov.steamscan.repository.ItemStatsRepository;
 import ilia.nemankov.steamscan.util.UrlUtil;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
+import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -16,24 +16,18 @@ import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
 public class ItemSearchServiceImpl implements ItemSearchService {
 
-    private static final int ITEMS_COUNT = 20;
-
     private GameService gameService;
-    private ItemSearchCycleRepository cycleRepository;
     private UrlUtil urlUtil;
     private ItemRepository itemRepository;
     private ItemStatsRepository itemStatsRepository;
@@ -41,11 +35,14 @@ public class ItemSearchServiceImpl implements ItemSearchService {
     private List<Game> games;
     private Iterator<Game> iterator;
     private Game currentGame;
+    private int nextItemNumber;
+    private int scannedItemsCount;
 
     @Autowired
-    public ItemSearchServiceImpl(GameService gameService, ItemSearchCycleRepository cycleRepository, UrlUtil urlUtil, ItemRepository itemRepository, ItemStatsRepository itemStatsRepository) {
+    public ItemSearchServiceImpl(GameService gameService, UrlUtil urlUtil,
+                                 ItemRepository itemRepository, ItemStatsRepository itemStatsRepository,
+                                 Integer scannedItemsCount) {
         this.gameService = gameService;
-        this.cycleRepository = cycleRepository;
         this.urlUtil = urlUtil;
         this.itemRepository = itemRepository;
         this.itemStatsRepository = itemStatsRepository;
@@ -53,101 +50,105 @@ public class ItemSearchServiceImpl implements ItemSearchService {
         this.games = gameService.getGames();
         this.iterator = games.iterator();
         this.currentGame = iterator.next();
+        this.scannedItemsCount = scannedItemsCount;
     }
 
     @Scheduled(fixedDelay = 300 * 1000)
-    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public void searchItems() {
-        ItemSearchCycle analysedGame = null;
-        boolean gameFound = false;
-        while (!gameFound) {
-            Optional<ItemSearchCycle> analysedGameOptional = cycleRepository.findById(currentGame.getId());
-            if (analysedGameOptional.isPresent()) {
-                analysedGame = analysedGameOptional.get();
-            } else {
-                analysedGame = cycleRepository.save(new ItemSearchCycle(currentGame.getId()));
-            }
-            if (!analysedGame.isSearchFinished()) {
-                gameFound = true;
-            } else {
-                if (iterator.hasNext()) {
-                    currentGame = iterator.next();
-                } else {
-                    startNewCycle();
-                }
-            }
-        }
-
         try {
-            boolean hasNext = analysePage(currentGame, analysedGame.getNextItem());
+            boolean hasNext = analysePage(currentGame, nextItemNumber);
             if (!hasNext) {
-                analysedGame.setSearchFinished(true);
-                cycleRepository.save(analysedGame);
-                if (!iterator.hasNext()) {
-                    startNewCycle();
-                }
+                selectNextGame();
                 return;
+            } else {
+                nextItemNumber += scannedItemsCount;
             }
         } catch (IOException e) {
             log.warn("Items search failed", e);
         }
-        analysedGame.setNextItem(analysedGame.getNextItem() + ITEMS_COUNT);
-        cycleRepository.save(analysedGame);
     }
 
     private boolean analysePage(Game game, int firstItem) throws IOException {
         ParsedPageInfo pageInfo = getPageInfo(game.getId(), firstItem);
 
-        if (pageInfo.elements.isEmpty()) {
-            firstItem = pageInfo.getTotalItemsCount() - firstItem;
-            if (firstItem > 0) {
-                pageInfo = getPageInfo(game.getId(), firstItem);
-            } else {
-                return false;
-            }
+        if (pageInfo.getElements().isEmpty()) {
+            return false;
         }
 
-        int totalItemsCount = pageInfo.totalItemsCount;
+        int totalItemsCount = pageInfo.getTotalItemsCount();
         Elements elements = pageInfo.getElements();
 
+        Set<String> itemNames = new HashSet<>();
         for (Element element : elements) {
             String itemUrl = element.attr("href");
-            Document document = Jsoup.connect(itemUrl).get();
-            String script = document.getElementsByTag("script").last().data();
+            List<String> nodes = urlUtil.getUrlNodes(itemUrl);
+            String itemName = nodes.get(nodes.size() - 1);
 
-            BufferedReader bufferedReader = new BufferedReader(new StringReader(script));
-            String line;
-            Long itemId = null;
-            while ((line = bufferedReader.readLine()) != null) {
-                if (line.contains("Market_LoadOrderSpread")) {
-                    try {
-                        itemId = Long.parseLong(line.split("\\(")[1].split("\\)")[0].trim());
-                        List<String> nodes = urlUtil.getUrlNodes(itemUrl);
-                        String itemName = nodes.get(nodes.size() - 1);
+            itemNames.add(itemName);
+        }
 
-                        Item item = new Item();
-                        item.setId(new ItemId(itemId, game.getId()));
-                        item.setGame(game);
-                        item.setItemName(itemName);
-                        itemRepository.save(item);
+        Set<String> knownItems = itemRepository
+                .findByGameAndItemNameIn(currentGame, itemNames)
+                .parallelStream()
+                .map(item -> item.getItemName())
+                .collect(Collectors.toSet());
 
-                        ItemStats stats = new ItemStats();
-                        stats.setId(item.getId());
-                        stats.setGame(game);
-                        itemStatsRepository.save(stats);
-                        break;
-                    } catch (IndexOutOfBoundsException e) {
-                        log.error("Script contains unexpected code: {}", line, e);
-                    } catch (NumberFormatException e) {
-                        log.error("Item name isn't integer: {}", line, e);
-                    }
+        itemNames.removeAll(knownItems);
+
+        List<String> itemUrls = new ArrayList<>();
+        for (String itemName : itemNames) {
+            String itemUrl = buildItemUrl(currentGame, itemName);
+            itemUrls.add(itemUrl);
+        }
+
+        for (String itemUrl : itemUrls) {
+            while (true) {
+                try {
+                    findAndSaveItem(game, itemUrl);
+                    break;
+                } catch (HttpStatusException e) {
+                    //TODO get new proxy address from pool
                 }
             }
-            if (itemId == null) {
-                log.error("Item id not found. Script: {}", script);
+        }
+        return totalItemsCount > firstItem + scannedItemsCount;
+    }
+
+    private void findAndSaveItem(Game game, String itemUrl) throws IOException {
+        Document document = Jsoup.connect(itemUrl).get();
+        String script = document.getElementsByTag("script").last().data();
+
+        BufferedReader bufferedReader = new BufferedReader(new StringReader(script));
+        String line;
+        Long itemId = null;
+        while ((line = bufferedReader.readLine()) != null) {
+            if (line.contains("Market_LoadOrderSpread")) {
+                try {
+                    itemId = Long.parseLong(line.split("\\(")[1].split("\\)")[0].trim());
+                    List<String> nodes = urlUtil.getUrlNodes(itemUrl);
+                    String itemName = nodes.get(nodes.size() - 1);
+
+                    Item item = new Item();
+                    item.setId(new ItemId(itemId, game.getId()));
+                    item.setGame(game);
+                    item.setItemName(itemName);
+                    itemRepository.save(item);
+
+                    ItemStats stats = new ItemStats();
+                    stats.setId(item.getId());
+                    stats.setGame(game);
+                    itemStatsRepository.save(stats);
+                    break;
+                } catch (IndexOutOfBoundsException e) {
+                    log.error("Script contains unexpected code: {}", line, e);
+                } catch (NumberFormatException e) {
+                    log.error("Item name isn't integer: {}", line, e);
+                }
             }
         }
-        return totalItemsCount > firstItem + ITEMS_COUNT;
+        if (itemId == null) {
+            log.error("Item id not found. Script: {}", script);
+        }
     }
 
     private String buildPageUrl(long gameId, long firstItem, long itemsCount) {
@@ -161,15 +162,28 @@ public class ItemSearchServiceImpl implements ItemSearchService {
         return stringBuilder.toString();
     }
 
-    private void startNewCycle() {
-        cycleRepository.initNewCycle();
-        iterator = games.iterator();
+    private String buildItemUrl(Game game, String itemName) {
+        return "https://steamcommunity.com/market/listings/" + game.getId() + "/" + itemName;
+    }
+
+    private void selectNextGame() {
+        if (!iterator.hasNext()) {
+            iterator = games.iterator();
+        }
         currentGame = iterator.next();
     }
 
     private ParsedPageInfo getPageInfo(long gameId, long firstItem) throws IOException {
-        String url = buildPageUrl(gameId, firstItem, ITEMS_COUNT);
-        String data = Jsoup.connect(url).ignoreContentType(true).execute().body();
+        String url = buildPageUrl(gameId, firstItem, scannedItemsCount);
+        String data = null;
+        while (true) {
+            try {
+                data = Jsoup.connect(url).ignoreContentType(true).execute().body();
+                break;
+            } catch (HttpStatusException e) {
+                //TODO get new proxy address from pool
+            }
+        }
 
         JSONObject jsonObject = new JSONObject(data);
         int totalItemCount = (Integer) jsonObject.get("total_count");
