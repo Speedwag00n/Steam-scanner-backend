@@ -14,6 +14,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -41,7 +42,7 @@ public class ItemSearchServiceImpl implements ItemSearchService {
     @Autowired
     public ItemSearchServiceImpl(GameService gameService, UrlUtil urlUtil,
                                  ItemRepository itemRepository, ItemStatsRepository itemStatsRepository,
-                                 Integer scannedItemsCount) {
+                                 @Qualifier("scannedItemsCount") Integer scannedItemsCount) {
         this.gameService = gameService;
         this.urlUtil = urlUtil;
         this.itemRepository = itemRepository;

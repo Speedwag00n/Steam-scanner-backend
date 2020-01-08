@@ -7,8 +7,10 @@ import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -20,30 +22,37 @@ import java.io.IOException;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @Slf4j
 public class ItemStatsServiceImpl implements ItemStatsService {
-
-    private static final int PAGE_SIZE = 100;
-    private static final double COMMISSION =  0.13D;
 
     private ItemRepository itemRepository;
     private ThreadPoolTaskExecutor itemStatsExecutor;
     private ItemStatsRepository itemStatsRepository;
     private List<Long> scannedGames;
 
+    private int pageSize;
+    private double commission;
+
     private int requestsCount;
     private int pageNumber;
     private List<ItemStats> itemStats;
     private Iterator<ItemStats> iterator;
+    private AtomicBoolean changeProxy = new AtomicBoolean(false);
 
     @Autowired
-    public ItemStatsServiceImpl(ItemRepository itemRepository, ThreadPoolTaskExecutor itemStatsExecutor, ItemStatsRepository itemStatsRepository, List<Long> scannedGames) {
+    public ItemStatsServiceImpl(ItemRepository itemRepository, ThreadPoolTaskExecutor itemStatsExecutor,
+                                ItemStatsRepository itemStatsRepository, List<Long> scannedGames,
+                                @Qualifier("pageSize") Integer pageSize, Double commission) {
         this.itemRepository = itemRepository;
         this.itemStatsExecutor = itemStatsExecutor;
         this.itemStatsRepository = itemStatsRepository;
         this.scannedGames = scannedGames;
+
+        this.pageSize = pageSize;
+        this.commission = commission;
 
         this.requestsCount = itemStatsExecutor.getMaxPoolSize();
         updateCachedStats();
@@ -51,6 +60,9 @@ public class ItemStatsServiceImpl implements ItemStatsService {
 
     @Scheduled(fixedDelay = 5 * 1000)
     private void updateItemStats() {
+        if (changeProxy.get()) {
+            //TODO get new proxy address from pool
+        }
         for (int i = 0; i < requestsCount; i++) {
             if (iterator.hasNext()) {
                 try {
@@ -71,9 +83,9 @@ public class ItemStatsServiceImpl implements ItemStatsService {
 
     private void updateCachedStats() {
         if (scannedGames == null || scannedGames.size() == 0) {
-            itemStats = itemStatsRepository.findAll(PageRequest.of(pageNumber, PAGE_SIZE, Sort.by("itemId"))).getContent();
+            itemStats = itemStatsRepository.findAll(PageRequest.of(pageNumber, pageSize, Sort.by("itemId"))).getContent();
         } else {
-            itemStats = itemStatsRepository.findAllByGameIdIn(scannedGames, PageRequest.of(pageNumber, PAGE_SIZE, Sort.by("itemId"))).getContent();
+            itemStats = itemStatsRepository.findAllByGameIdIn(scannedGames, PageRequest.of(pageNumber, pageSize, Sort.by("itemId"))).getContent();
         }
         iterator = itemStats.iterator();
         pageNumber++;
@@ -89,6 +101,10 @@ public class ItemStatsServiceImpl implements ItemStatsService {
             JSONObject jsonObject;
             try {
                 jsonObject = getStats();
+            } catch (HttpStatusException e) {
+                //TODO compare used proxy address with current proxy address
+                changeProxy.set(true);
+                return;
             } catch (IOException e) {
                 log.warn("Could not get item stats with id {}", stats.getId().getItemId(), e);
                 return;
@@ -153,7 +169,7 @@ public class ItemStatsServiceImpl implements ItemStatsService {
             double highestBuyOrder = stats.getHighestBuyOrder();
             double lowestSellOrder = stats.getLowestSellOrder();
             if (highestBuyOrder != 0 && lowestSellOrder != 0) {
-                double profitAbsolute = lowestSellOrder * (1 - COMMISSION) - highestBuyOrder;
+                double profitAbsolute = lowestSellOrder * (1 - commission) - highestBuyOrder;
                 double profitRelative = profitAbsolute / highestBuyOrder;
 
                 stats.setProfitAbsolute(profitAbsolute);

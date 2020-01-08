@@ -1,5 +1,6 @@
 package ilia.nemankov.steamscan.configuration;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,6 +25,7 @@ public class ScanConfiguration {
     }
 
     @Bean
+    @Qualifier("scannedItemsCount")
     public Integer scannedItemsCount() {
         return scannedItemsCount;
     }
