@@ -1,5 +1,7 @@
 package ilia.nemankov.steamscan.service.background;
 
+import ilia.nemankov.steamscan.configuration.proxy.Proxy;
+import ilia.nemankov.steamscan.configuration.proxy.ProxyManager;
 import ilia.nemankov.steamscan.model.ItemStats;
 import ilia.nemankov.steamscan.repository.ItemRepository;
 import ilia.nemankov.steamscan.repository.ItemStatsRepository;
@@ -19,6 +21,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
@@ -32,6 +36,7 @@ public class ItemStatsServiceImpl implements ItemStatsService {
     private ThreadPoolTaskExecutor itemStatsExecutor;
     private ItemStatsRepository itemStatsRepository;
     private List<Long> scannedGames;
+    private ProxyManager proxyManager;
 
     private int pageSize;
     private double commission;
@@ -41,32 +46,48 @@ public class ItemStatsServiceImpl implements ItemStatsService {
     private List<ItemStats> itemStats;
     private Iterator<ItemStats> iterator;
     private AtomicBoolean changeProxy = new AtomicBoolean(false);
+    private int proxyRequestCount;
+
+    private Proxy currentProxy;
 
     @Autowired
     public ItemStatsServiceImpl(ItemRepository itemRepository, ThreadPoolTaskExecutor itemStatsExecutor,
                                 ItemStatsRepository itemStatsRepository, List<Long> scannedGames,
-                                @Qualifier("pageSize") Integer pageSize, Double commission) {
+                                @Qualifier("pageSize") Integer pageSize, Double commission,
+                                @Qualifier("itemStatsProxyManager") ProxyManager proxyManager) {
         this.itemRepository = itemRepository;
         this.itemStatsExecutor = itemStatsExecutor;
         this.itemStatsRepository = itemStatsRepository;
         this.scannedGames = scannedGames;
+        this.proxyManager = proxyManager;
 
         this.pageSize = pageSize;
         this.commission = commission;
 
         this.requestsCount = itemStatsExecutor.getMaxPoolSize();
+        if (this.proxyManager.hasProxies()) {
+            this.currentProxy = proxyManager.getProxy();
+        }
         updateCachedStats();
     }
 
     @Scheduled(fixedDelay = 5 * 1000)
     private void updateItemStats() {
         if (changeProxy.get()) {
-            //TODO get new proxy address from pool
+            synchronized (currentProxy) {
+                if (this.proxyManager.hasProxies()) {
+                    log.debug("Start change proxy. Current proxy: {}, {}. It made {} requests", this.currentProxy.getAddress(), this.currentProxy.getPort(), this.proxyRequestCount);
+                    this.currentProxy = proxyManager.getProxy();
+                    this.proxyRequestCount = 0;
+                    changeProxy.set(false);
+                    log.debug("Proxy changed. New proxy: {}, {}", this.currentProxy.getAddress(), this.currentProxy.getPort());
+                }
+            }
         }
         for (int i = 0; i < requestsCount; i++) {
             if (iterator.hasNext()) {
                 try {
-                    itemStatsExecutor.execute(new UpdateItemStats(iterator.next()));
+                    itemStatsExecutor.execute(new UpdateItemStats(iterator.next(), currentProxy));
                 } catch (TaskRejectedException e) {
                     log.warn("Queue is full", e);
                     return;
@@ -95,15 +116,19 @@ public class ItemStatsServiceImpl implements ItemStatsService {
     class UpdateItemStats implements Runnable {
 
         private ItemStats stats;
+        private Proxy proxy;
 
         @Override
         public void run() {
             JSONObject jsonObject;
             try {
                 jsonObject = getStats();
-            } catch (HttpStatusException e) {
-                //TODO compare used proxy address with current proxy address
-                changeProxy.set(true);
+            } catch (HttpStatusException | SocketException | SocketTimeoutException e) {
+                synchronized (currentProxy) {
+                    if (currentProxy.equals(proxy)) {
+                        changeProxy.set(true);
+                    }
+                }
                 return;
             } catch (IOException e) {
                 log.warn("Could not get item stats with id {}", stats.getId().getItemId(), e);
@@ -126,7 +151,13 @@ public class ItemStatsServiceImpl implements ItemStatsService {
 
         private JSONObject getStats() throws IOException {
             String url = buildStatsUrl();
-            String data = Jsoup.connect(url).ignoreContentType(true).execute().body();
+            String data;
+            if (proxyManager.hasProxies()) {
+                data = Jsoup.connect(url).proxy(proxy.getAddress(), proxy.getPort()).ignoreContentType(true).execute().body();
+                proxyRequestCount++;
+            } else {
+                data = Jsoup.connect(url).ignoreContentType(true).execute().body();
+            }
 
             return new JSONObject(data);
         }

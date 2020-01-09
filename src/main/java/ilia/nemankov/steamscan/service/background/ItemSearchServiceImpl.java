@@ -1,6 +1,11 @@
 package ilia.nemankov.steamscan.service.background;
 
-import ilia.nemankov.steamscan.model.*;
+import ilia.nemankov.steamscan.configuration.proxy.Proxy;
+import ilia.nemankov.steamscan.configuration.proxy.ProxyManager;
+import ilia.nemankov.steamscan.model.Game;
+import ilia.nemankov.steamscan.model.Item;
+import ilia.nemankov.steamscan.model.ItemId;
+import ilia.nemankov.steamscan.model.ItemStats;
 import ilia.nemankov.steamscan.repository.ItemRepository;
 import ilia.nemankov.steamscan.repository.ItemStatsRepository;
 import ilia.nemankov.steamscan.util.UrlUtil;
@@ -21,6 +26,8 @@ import org.springframework.stereotype.Service;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,26 +39,34 @@ public class ItemSearchServiceImpl implements ItemSearchService {
     private UrlUtil urlUtil;
     private ItemRepository itemRepository;
     private ItemStatsRepository itemStatsRepository;
+    private ProxyManager proxyManager;
 
     private List<Game> games;
     private Iterator<Game> iterator;
     private Game currentGame;
     private int nextItemNumber;
     private int scannedItemsCount;
+    private Proxy currentProxy;
+    private int proxyRequestCount;
 
     @Autowired
     public ItemSearchServiceImpl(GameService gameService, UrlUtil urlUtil,
                                  ItemRepository itemRepository, ItemStatsRepository itemStatsRepository,
-                                 @Qualifier("scannedItemsCount") Integer scannedItemsCount) {
+                                 @Qualifier("scannedItemsCount") Integer scannedItemsCount,
+                                 @Qualifier("itemProxyManager") ProxyManager proxyManager) {
         this.gameService = gameService;
         this.urlUtil = urlUtil;
         this.itemRepository = itemRepository;
         this.itemStatsRepository = itemStatsRepository;
+        this.proxyManager = proxyManager;
 
         this.games = gameService.getGames();
         this.iterator = games.iterator();
         this.currentGame = iterator.next();
         this.scannedItemsCount = scannedItemsCount;
+        if (this.proxyManager.hasProxies()) {
+            this.currentProxy = proxyManager.getProxy();
+        }
     }
 
     @Scheduled(fixedDelay = 300 * 1000)
@@ -107,8 +122,8 @@ public class ItemSearchServiceImpl implements ItemSearchService {
                 try {
                     findAndSaveItem(game, itemUrl);
                     break;
-                } catch (HttpStatusException e) {
-                    //TODO get new proxy address from pool
+                } catch (HttpStatusException | SocketException | SocketTimeoutException e) {
+                    changeProxy();
                 }
             }
         }
@@ -116,7 +131,13 @@ public class ItemSearchServiceImpl implements ItemSearchService {
     }
 
     private void findAndSaveItem(Game game, String itemUrl) throws IOException {
-        Document document = Jsoup.connect(itemUrl).get();
+        Document document;
+        if (this.currentProxy != null) {
+            document = Jsoup.connect(itemUrl).proxy(currentProxy.getAddress(), currentProxy.getPort()).get();
+            this.proxyRequestCount++;
+        } else {
+            document = Jsoup.connect(itemUrl).get();
+        }
         String script = document.getElementsByTag("script").last().data();
 
         BufferedReader bufferedReader = new BufferedReader(new StringReader(script));
@@ -176,13 +197,18 @@ public class ItemSearchServiceImpl implements ItemSearchService {
 
     private ParsedPageInfo getPageInfo(long gameId, long firstItem) throws IOException {
         String url = buildPageUrl(gameId, firstItem, scannedItemsCount);
-        String data = null;
+        String data;
         while (true) {
             try {
-                data = Jsoup.connect(url).ignoreContentType(true).execute().body();
+                if (this.proxyManager.hasProxies()) {
+                    data = Jsoup.connect(url).proxy(currentProxy.getAddress(), currentProxy.getPort()).ignoreContentType(true).execute().body();
+                    this.proxyRequestCount++;
+                } else {
+                    data = Jsoup.connect(url).ignoreContentType(true).execute().body();
+                }
                 break;
-            } catch (HttpStatusException e) {
-                //TODO get new proxy address from pool
+            } catch (HttpStatusException | SocketException | SocketTimeoutException e) {
+                changeProxy();
             }
         }
 
@@ -198,6 +224,15 @@ public class ItemSearchServiceImpl implements ItemSearchService {
         parsedPageInfo.setElements(elements);
 
         return parsedPageInfo;
+    }
+
+    private void changeProxy() {
+        if (this.proxyManager.hasProxies()) {
+            log.debug("Start change proxy. Current proxy: {}, {}. It made {} requests", this.currentProxy.getAddress(), this.currentProxy.getPort(), this.proxyRequestCount);
+            this.currentProxy = proxyManager.getProxy();
+            this.proxyRequestCount = 0;
+            log.debug("Proxy changed. New proxy: {}, {}", this.currentProxy.getAddress(), this.currentProxy.getPort());
+        }
     }
 
     @Getter
