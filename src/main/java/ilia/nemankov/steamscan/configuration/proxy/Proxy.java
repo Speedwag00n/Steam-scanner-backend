@@ -15,6 +15,7 @@ public class Proxy {
     private int port;
 
     public Proxy(String string) {
+        // Value in a format "ip:port" is expected. All other value are invalid
         String[] parts = string.split(":");
         if (parts.length != 2) {
             throw new IllegalArgumentException("String " + string + " has unknown format.");

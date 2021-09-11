@@ -4,6 +4,7 @@ import ilia.nemankov.steamscan.dto.ItemDTO;
 import ilia.nemankov.steamscan.dto.ItemStatsDTO;
 import ilia.nemankov.steamscan.model.ItemStats;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -11,6 +12,9 @@ import java.util.List;
 
 @Component
 public class ItemStatsMapper {
+
+    @Value("${url.listings}")
+    private String listingsUrl;
 
     private ItemMapper itemMapper;
 
@@ -30,7 +34,7 @@ public class ItemStatsMapper {
         dto.setLastUpdate(entity.getLastUpdate());
         dto.setProfitAbsolute(entity.getProfitAbsolute());
         dto.setProfitRelative(entity.getProfitRelative());
-        dto.setItemUrl("https://steamcommunity.com/market/listings/" + entity.getGame().getId() + "/" + entity.getItem().getItemName());
+        dto.setItemUrl(listingsUrl + entity.getGame().getId() + "/" + entity.getItem().getItemName());
 
         return dto;
     }

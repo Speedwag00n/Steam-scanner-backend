@@ -9,6 +9,7 @@ import ilia.nemankov.steamscan.model.ItemStats;
 import ilia.nemankov.steamscan.repository.ItemRepository;
 import ilia.nemankov.steamscan.repository.ItemStatsRepository;
 import ilia.nemankov.steamscan.util.UrlUtil;
+import liquibase.pro.packaged.I;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +21,7 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -35,49 +37,42 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ItemSearchServiceImpl implements ItemSearchService {
 
+    @Value("${url.listings}")
+    private String listingsUrl;
+    @Value("${url.item}")
+    private String itemUrlBase;
+
     private GameService gameService;
     private UrlUtil urlUtil;
     private ItemRepository itemRepository;
     private ItemStatsRepository itemStatsRepository;
-    private ProxyManager proxyManager;
 
-    private List<Game> games;
-    private Iterator<Game> iterator;
-    private Game currentGame;
-    private int nextItemNumber;
-    private int scannedItemsCount;
-    private Proxy currentProxy;
-    private int proxyRequestCount;
+    private ItemSearchServiceState itemSearchServiceState;
 
     @Autowired
     public ItemSearchServiceImpl(GameService gameService, UrlUtil urlUtil,
                                  ItemRepository itemRepository, ItemStatsRepository itemStatsRepository,
-                                 @Qualifier("scannedItemsCount") Integer scannedItemsCount,
-                                 @Qualifier("itemProxyManager") ProxyManager proxyManager) {
+                                 ItemSearchServiceState itemSearchServiceState) {
         this.gameService = gameService;
         this.urlUtil = urlUtil;
         this.itemRepository = itemRepository;
         this.itemStatsRepository = itemStatsRepository;
-        this.proxyManager = proxyManager;
+        this.itemSearchServiceState = itemSearchServiceState;
 
-        this.games = gameService.getGames();
-        this.iterator = games.iterator();
-        this.currentGame = iterator.next();
-        this.scannedItemsCount = scannedItemsCount;
-        if (this.proxyManager.hasProxies()) {
-            this.currentProxy = proxyManager.getProxy();
-        }
+        itemSearchServiceState.setGames(gameService.getGames());
     }
 
     @Scheduled(fixedDelay = 300 * 1000)
     public void searchItems() {
         try {
-            boolean hasNext = analysePage(currentGame, nextItemNumber);
+            boolean hasNext = analysePage(itemSearchServiceState.getCurrentGame(), itemSearchServiceState.getNextItemNumber());
+
             if (!hasNext) {
-                selectNextGame();
-                return;
+                // All pages for the current game was analyzed. Select the next game from the list of games
+                itemSearchServiceState.selectNextGame();
             } else {
-                nextItemNumber += scannedItemsCount;
+                // Next page exists. Analyze it
+                itemSearchServiceState.nextPage();
             }
         } catch (IOException e) {
             log.warn("Items search failed", e);
@@ -95,25 +90,25 @@ public class ItemSearchServiceImpl implements ItemSearchService {
         Elements elements = pageInfo.getElements();
 
         Set<String> itemNames = new HashSet<>();
-        for (Element element : elements) {
-            String itemUrl = element.attr("href");
-            List<String> nodes = urlUtil.getUrlNodes(itemUrl);
-            String itemName = nodes.get(nodes.size() - 1);
 
-            itemNames.add(itemName);
+        // Parse names of items from urls
+        for (Element element : elements) {
+            itemNames.add(parseItemName(element));
         }
 
+        // Find which items are already saved
         Set<String> knownItems = itemRepository
-                .findByGameAndItemNameIn(currentGame, itemNames)
+                .findByGameAndItemNameIn(itemSearchServiceState.getCurrentGame(), itemNames)
                 .parallelStream()
                 .map(item -> item.getItemName())
                 .collect(Collectors.toSet());
 
         itemNames.removeAll(knownItems);
 
+        // Build urls to personal items' pages
         List<String> itemUrls = new ArrayList<>();
         for (String itemName : itemNames) {
-            String itemUrl = buildItemUrl(currentGame, itemName);
+            String itemUrl = buildItemUrl(itemSearchServiceState.getCurrentGame(), itemName);
             itemUrls.add(itemUrl);
         }
 
@@ -123,18 +118,24 @@ public class ItemSearchServiceImpl implements ItemSearchService {
                     findAndSaveItem(game, itemUrl);
                     break;
                 } catch (HttpStatusException | SocketException | SocketTimeoutException e) {
-                    changeProxy();
+                    itemSearchServiceState.changeProxy();
                 }
             }
         }
-        return totalItemsCount > firstItem + scannedItemsCount;
+        return totalItemsCount > firstItem + itemSearchServiceState.getScannedItemsCount();
+    }
+
+    private String parseItemName(Element element) {
+        String itemUrl = element.attr("href");
+        List<String> nodes = urlUtil.getUrlNodes(itemUrl);
+        return nodes.get(nodes.size() - 1);
     }
 
     private void findAndSaveItem(Game game, String itemUrl) throws IOException {
         Document document;
-        if (this.currentProxy != null) {
-            document = Jsoup.connect(itemUrl).proxy(currentProxy.getAddress(), currentProxy.getPort()).get();
-            this.proxyRequestCount++;
+        if (itemSearchServiceState.getCurrentProxy() != null) {
+            document = Jsoup.connect(itemUrl).proxy(itemSearchServiceState.getCurrentProxy().getAddress(), itemSearchServiceState.getCurrentProxy().getPort()).get();
+            itemSearchServiceState.increaseProxyRequestCount();
         } else {
             document = Jsoup.connect(itemUrl).get();
         }
@@ -143,6 +144,8 @@ public class ItemSearchServiceImpl implements ItemSearchService {
         BufferedReader bufferedReader = new BufferedReader(new StringReader(script));
         String line;
         Long itemId = null;
+
+        // Parse script content
         while ((line = bufferedReader.readLine()) != null) {
             if (line.contains("Market_LoadOrderSpread")) {
                 try {
@@ -150,12 +153,14 @@ public class ItemSearchServiceImpl implements ItemSearchService {
                     List<String> nodes = urlUtil.getUrlNodes(itemUrl);
                     String itemName = nodes.get(nodes.size() - 1);
 
+                    // Save info about item
                     Item item = new Item();
                     item.setId(new ItemId(itemId, game.getId()));
                     item.setGame(game);
                     item.setItemName(itemName);
                     itemRepository.save(item);
 
+                    // Save black stats entity
                     ItemStats stats = new ItemStats();
                     stats.setId(item.getId());
                     stats.setGame(game);
@@ -175,7 +180,7 @@ public class ItemSearchServiceImpl implements ItemSearchService {
 
     private String buildPageUrl(long gameId, long firstItem, long itemsCount) {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("https://steamcommunity.com/market/search/render/?query=&start=");
+        stringBuilder.append(itemUrlBase);
         stringBuilder.append(firstItem);
         stringBuilder.append("&count=");
         stringBuilder.append(itemsCount);
@@ -185,30 +190,28 @@ public class ItemSearchServiceImpl implements ItemSearchService {
     }
 
     private String buildItemUrl(Game game, String itemName) {
-        return "https://steamcommunity.com/market/listings/" + game.getId() + "/" + itemName;
-    }
-
-    private void selectNextGame() {
-        if (!iterator.hasNext()) {
-            iterator = games.iterator();
-        }
-        currentGame = iterator.next();
+        return listingsUrl + game.getId() + "/" + itemName;
     }
 
     private ParsedPageInfo getPageInfo(long gameId, long firstItem) throws IOException {
-        String url = buildPageUrl(gameId, firstItem, scannedItemsCount);
-        String data;
-        while (true) {
+        // Parse information about total items count + get all HTML item nodes
+        String url = buildPageUrl(gameId, firstItem, itemSearchServiceState.getScannedItemsCount());
+        String data = null;
+
+        boolean requestMade = false;
+
+        while (!requestMade) {
             try {
-                if (this.proxyManager.hasProxies()) {
-                    data = Jsoup.connect(url).proxy(currentProxy.getAddress(), currentProxy.getPort()).ignoreContentType(true).execute().body();
-                    this.proxyRequestCount++;
+                if (itemSearchServiceState.getProxyManager().hasProxies()) {
+                    data = Jsoup.connect(url).proxy(itemSearchServiceState.getCurrentProxy().getAddress(), itemSearchServiceState.getCurrentProxy().getPort()).ignoreContentType(true).execute().body();
+                    itemSearchServiceState.increaseProxyRequestCount();
                 } else {
                     data = Jsoup.connect(url).ignoreContentType(true).execute().body();
                 }
-                break;
+
+                requestMade = true;
             } catch (HttpStatusException | SocketException | SocketTimeoutException e) {
-                changeProxy();
+                itemSearchServiceState.changeProxy();
             }
         }
 
@@ -224,15 +227,6 @@ public class ItemSearchServiceImpl implements ItemSearchService {
         parsedPageInfo.setElements(elements);
 
         return parsedPageInfo;
-    }
-
-    private void changeProxy() {
-        if (this.proxyManager.hasProxies()) {
-            log.debug("Start change proxy. Current proxy: {}, {}. It made {} requests", this.currentProxy.getAddress(), this.currentProxy.getPort(), this.proxyRequestCount);
-            this.currentProxy = proxyManager.getProxy();
-            this.proxyRequestCount = 0;
-            log.debug("Proxy changed. New proxy: {}, {}", this.currentProxy.getAddress(), this.currentProxy.getPort());
-        }
     }
 
     @Getter

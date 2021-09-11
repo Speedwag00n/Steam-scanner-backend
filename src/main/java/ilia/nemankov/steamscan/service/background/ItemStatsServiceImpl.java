@@ -13,6 +13,7 @@ import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -32,84 +33,56 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class ItemStatsServiceImpl implements ItemStatsService {
 
+    @Value("${url.item.stats}")
+    private String itemStatsUrl;
+
     private ItemRepository itemRepository;
     private ThreadPoolTaskExecutor itemStatsExecutor;
     private ItemStatsRepository itemStatsRepository;
-    private List<Long> scannedGames;
-    private ProxyManager proxyManager;
 
-    private int pageSize;
-    private double commission;
-
-    private int requestsCount;
-    private int pageNumber;
-    private List<ItemStats> itemStats;
-    private Iterator<ItemStats> iterator;
-    private AtomicBoolean changeProxy = new AtomicBoolean(false);
-    private int proxyRequestCount;
-
-    private Proxy currentProxy;
+    private ItemStatsServiceState itemStatsServiceState;
 
     @Autowired
     public ItemStatsServiceImpl(ItemRepository itemRepository, ThreadPoolTaskExecutor itemStatsExecutor,
                                 ItemStatsRepository itemStatsRepository, List<Long> scannedGames,
-                                @Qualifier("pageSize") Integer pageSize, Double commission,
-                                @Qualifier("itemStatsProxyManager") ProxyManager proxyManager) {
+                                ItemStatsServiceState itemStatsServiceState) {
         this.itemRepository = itemRepository;
         this.itemStatsExecutor = itemStatsExecutor;
         this.itemStatsRepository = itemStatsRepository;
-        this.scannedGames = scannedGames;
-        this.proxyManager = proxyManager;
 
-        this.pageSize = pageSize;
-        this.commission = commission;
+        this.itemStatsServiceState = itemStatsServiceState;
+        itemStatsServiceState.setScannedGames(scannedGames);
+        itemStatsServiceState.setRequestsCount(itemStatsExecutor.getMaxPoolSize());
 
-        this.requestsCount = itemStatsExecutor.getMaxPoolSize();
-        if (this.proxyManager.hasProxies()) {
-            this.currentProxy = proxyManager.getProxy();
-        }
-        updateCachedStats();
+        // Save some stats from db in memory
+        itemStatsServiceState.updateCachedStats();
     }
 
     @Scheduled(fixedDelay = 5 * 1000)
     private void updateItemStats() {
-        if (changeProxy.get()) {
-            synchronized (currentProxy) {
-                if (this.proxyManager.hasProxies()) {
-                    log.debug("Start change proxy. Current proxy: {}, {}. It made {} requests", this.currentProxy.getAddress(), this.currentProxy.getPort(), this.proxyRequestCount);
-                    this.currentProxy = proxyManager.getProxy();
-                    this.proxyRequestCount = 0;
-                    changeProxy.set(false);
-                    log.debug("Proxy changed. New proxy: {}, {}", this.currentProxy.getAddress(), this.currentProxy.getPort());
-                }
+        if (itemStatsServiceState.getChangeProxy().get()) {
+            synchronized (itemStatsServiceState) {
+                itemStatsServiceState.changeProxy();
             }
         }
-        for (int i = 0; i < requestsCount; i++) {
-            if (iterator.hasNext()) {
+
+        // Fill pull of executors
+        for (int i = 0; i < itemStatsServiceState.getProxyRequestCount(); i++) {
+            if (itemStatsServiceState.getIterator().hasNext()) {
                 try {
-                    itemStatsExecutor.execute(new UpdateItemStats(iterator.next(), currentProxy));
+                    itemStatsExecutor.execute(new UpdateItemStats(itemStatsServiceState.getIterator().next(), itemStatsServiceState.getCurrentProxy()));
                 } catch (TaskRejectedException e) {
                     log.warn("Queue is full", e);
                     return;
                 }
             } else {
-                updateCachedStats();
-                if (itemStats.isEmpty()) {
-                    pageNumber = 0;
+                itemStatsServiceState.updateCachedStats();
+                if (itemStatsServiceState.getItemStats().isEmpty()) {
+                    itemStatsServiceState.setPageNumber(0);
                     return;
                 }
             }
         }
-    }
-
-    private void updateCachedStats() {
-        if (scannedGames == null || scannedGames.size() == 0) {
-            itemStats = itemStatsRepository.findAll(PageRequest.of(pageNumber, pageSize, Sort.by("itemId"))).getContent();
-        } else {
-            itemStats = itemStatsRepository.findAllByGameIdIn(scannedGames, PageRequest.of(pageNumber, pageSize, Sort.by("itemId"))).getContent();
-        }
-        iterator = itemStats.iterator();
-        pageNumber++;
     }
 
     @AllArgsConstructor
@@ -124,9 +97,9 @@ public class ItemStatsServiceImpl implements ItemStatsService {
             try {
                 jsonObject = getStats();
             } catch (HttpStatusException | SocketException | SocketTimeoutException e) {
-                synchronized (currentProxy) {
-                    if (currentProxy.equals(proxy)) {
-                        changeProxy.set(true);
+                synchronized (itemStatsServiceState) {
+                    if (itemStatsServiceState.getCurrentProxy().equals(proxy)) {
+                        itemStatsServiceState.getChangeProxy().set(true);
                     }
                 }
                 return;
@@ -152,9 +125,9 @@ public class ItemStatsServiceImpl implements ItemStatsService {
         private JSONObject getStats() throws IOException {
             String url = buildStatsUrl();
             String data;
-            if (proxyManager.hasProxies()) {
+            if (itemStatsServiceState.getProxyManager().hasProxies()) {
                 data = Jsoup.connect(url).proxy(proxy.getAddress(), proxy.getPort()).ignoreContentType(true).execute().body();
-                proxyRequestCount++;
+                itemStatsServiceState.increaseProxyRequestCount();
             } else {
                 data = Jsoup.connect(url).ignoreContentType(true).execute().body();
             }
@@ -163,7 +136,7 @@ public class ItemStatsServiceImpl implements ItemStatsService {
         }
 
         private String buildStatsUrl() {
-            return "https://steamcommunity.com/market/itemordershistogram?language=english&currency=1&item_nameid=" + stats.getId().getItemId();
+            return itemStatsUrl + stats.getId().getItemId();
         }
 
         private void updateHighestBuyOrder(JSONObject jsonObject) {
@@ -200,7 +173,7 @@ public class ItemStatsServiceImpl implements ItemStatsService {
             double highestBuyOrder = stats.getHighestBuyOrder();
             double lowestSellOrder = stats.getLowestSellOrder();
             if (highestBuyOrder != 0 && lowestSellOrder != 0) {
-                double profitAbsolute = lowestSellOrder * (1 - commission) - highestBuyOrder;
+                double profitAbsolute = lowestSellOrder * (1 - itemStatsServiceState.getCommission()) - highestBuyOrder;
                 double profitRelative = profitAbsolute / highestBuyOrder;
 
                 stats.setProfitAbsolute(profitAbsolute);

@@ -22,12 +22,12 @@ public class ProxyManagerCycled implements ProxyManager {
 
     @Override
     public Proxy getProxy() {
-        if (iterator.hasNext()) {
-            return iterator.next();
-        } else {
+        if (!iterator.hasNext()) {
+            // If it's last element in the iterator - generate new iterator and start a new cycle
             iterator = proxies.iterator();
-            return iterator.next();
         }
+
+        return iterator.next();
     }
 
 }

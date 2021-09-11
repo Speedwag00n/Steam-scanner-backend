@@ -1,6 +1,7 @@
 package ilia.nemankov.steamscan.service;
 
 import ilia.nemankov.steamscan.dto.ItemStatsDTO;
+import ilia.nemankov.steamscan.dto.ItemStatsSearchDTO;
 import ilia.nemankov.steamscan.mapper.ItemStatsMapper;
 import ilia.nemankov.steamscan.model.ItemStats;
 import ilia.nemankov.steamscan.repository.ItemStatsRepository;
@@ -29,36 +30,43 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
-    public List<ItemStatsDTO> getStats(
-            long gameId, int startPage, int count, Sort.Direction direction, ItemSortingColumn[] columns,
-            Double highestBuyOrder, Sign highestBuyOrderSign,
-            Double lowestSellOrder, Sign lowestSellOrderSign,
-            Double profitAbsolute, Sign profitAbsoluteSign,
-            Double profitRelative, Sign profitRelativeSign
-    ) {
-        if (direction == null) {
-            direction = Sort.Direction.DESC;
-        }
-        if (columns == null || columns.length == 0) {
-            columns = new ItemSortingColumn[]{ ItemSortingColumn.ID };
-        }
-        String[] columnsString = Arrays.stream(columns).map(item -> item.toString()).toArray(String[]::new);
-
-        Specification<ItemStats> specification = new FindItemStatsByGameId(new Long[]{gameId});
-        if (highestBuyOrder != null && highestBuyOrderSign != null) {
-            specification = specification.and(new FindItemStatsByHighestBuyOrder(highestBuyOrder, highestBuyOrderSign));
-        }
-        if (lowestSellOrder != null && lowestSellOrderSign != null) {
-            specification = specification.and(new FindItemStatsByHighestBuyOrder(lowestSellOrder, lowestSellOrderSign));
-        }
-        if (profitAbsolute != null && profitAbsoluteSign != null) {
-            specification = specification.and(new FindItemStatsByHighestBuyOrder(profitAbsolute, profitAbsoluteSign));
-        }
-        if (profitRelative != null && profitRelativeSign != null) {
-            specification = specification.and(new FindItemStatsByHighestBuyOrder(profitRelative, profitRelativeSign));
+    public List<ItemStatsDTO> getStats(ItemStatsSearchDTO itemStatsSearchDTO) {
+        // Set default sort value if it's empty
+        if (itemStatsSearchDTO.getDirection() == null) {
+            itemStatsSearchDTO.setDirection(Sort.Direction.DESC);
         }
 
-        List<ItemStats> itemStats = itemStatsRepository.findAll(specification, PageRequest.of(startPage, count, Sort.by(direction, columnsString))).getContent();
+        // Set ID column as default sorting column if it's empty
+        if (itemStatsSearchDTO.getColumns() == null || itemStatsSearchDTO.getColumns().length == 0) {
+            itemStatsSearchDTO.setColumns(new ItemSortingColumn[]{ ItemSortingColumn.ID });
+        }
+        String[] columnsString = Arrays.stream(itemStatsSearchDTO.getColumns()).map(item -> item.toString()).toArray(String[]::new);
+
+        Specification<ItemStats> specification = new FindItemStatsByGameId(new Long[]{itemStatsSearchDTO.getGameId()});
+
+        // Specify additional sorting rules
+        if (itemStatsSearchDTO.getHighestBuyOrder() != null && itemStatsSearchDTO.getHighestBuyOrderSign() != null) {
+            specification = specification.and(new FindItemStatsByHighestBuyOrder(itemStatsSearchDTO.getHighestBuyOrder(), itemStatsSearchDTO.getHighestBuyOrderSign()));
+        }
+        if (itemStatsSearchDTO.getLowestSellOrder() != null && itemStatsSearchDTO.getLowestSellOrderSign() != null) {
+            specification = specification.and(new FindItemStatsByHighestBuyOrder(itemStatsSearchDTO.getLowestSellOrder(), itemStatsSearchDTO.getLowestSellOrderSign()));
+        }
+        if (itemStatsSearchDTO.getProfitAbsolute() != null && itemStatsSearchDTO.getProfitAbsoluteSign() != null) {
+            specification = specification.and(new FindItemStatsByHighestBuyOrder(itemStatsSearchDTO.getProfitAbsolute(), itemStatsSearchDTO.getProfitAbsoluteSign()));
+        }
+        if (itemStatsSearchDTO.getProfitRelative() != null && itemStatsSearchDTO.getProfitRelativeSign() != null) {
+            specification = specification.and(new FindItemStatsByHighestBuyOrder(itemStatsSearchDTO.getProfitRelative(), itemStatsSearchDTO.getProfitRelativeSign()));
+        }
+
+        List<ItemStats> itemStats = itemStatsRepository.findAll(
+                specification,
+                PageRequest.of(
+                        itemStatsSearchDTO.getStartPage(),
+                        itemStatsSearchDTO.getCount(),
+                        Sort.by(itemStatsSearchDTO.getDirection(), columnsString)
+                )
+        ).getContent();
+
         return itemStatsMapper.entitiesToDtos(itemStats);
     }
 
